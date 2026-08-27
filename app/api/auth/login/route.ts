@@ -1,9 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
-import bcrypt from "bcryptjs";
+import { timingSafeEqual } from "crypto";
 import { createSessionToken, isProduction, SESSION_COOKIE_NAME } from "@/lib/auth";
 import { checkRateLimit } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
+
+function passwordsMatch(a: string, b: string): boolean {
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  // Buffers must be equal length for timingSafeEqual; a length mismatch
+  // already means "not equal" and leaks only length, not content.
+  if (bufA.length !== bufB.length) return false;
+  return timingSafeEqual(bufA, bufB);
+}
 
 export async function POST(req: NextRequest) {
   const ip =
@@ -20,17 +29,10 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const passwordHash = process.env.AURORA_PASSWORD_HASH;
-  // TEMPORARY DEBUG — remove after diagnosing the login issue.
-  console.log(
-    "[DEBUG] AURORA_PASSWORD_HASH raw value:",
-    JSON.stringify(passwordHash),
-    "length:",
-    passwordHash?.length
-  );
-  if (!passwordHash) {
+  const expectedPassword = process.env.AURORA_PASSWORD;
+  if (!expectedPassword) {
     return NextResponse.json(
-      { error: "Server auth is not configured (AURORA_PASSWORD_HASH missing)" },
+      { error: "Server auth is not configured (AURORA_PASSWORD missing)" },
       { status: 500 }
     );
   }
@@ -43,7 +45,7 @@ export async function POST(req: NextRequest) {
   }
 
   const password = body.password ?? "";
-  const valid = password.length > 0 && (await bcrypt.compare(password, passwordHash));
+  const valid = password.length > 0 && passwordsMatch(password, expectedPassword);
 
   if (!valid) {
     return NextResponse.json({ error: "Incorrect password" }, { status: 401 });

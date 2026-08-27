@@ -13,8 +13,9 @@ Settings page yet — those are later phases.
 - Tailwind CSS (dark terminal/dashboard styling)
 - Supabase (Postgres) as the database, accessed only from the server via the
   service role key — the browser never talks to Supabase directly
-- Single shared password, bcrypt-hashed, verified server-side, session held
-  in a signed httpOnly cookie (JWT via `jose`)
+- Single shared password, stored as plaintext in an env var and compared
+  server-side with a constant-time check, session held in a signed httpOnly
+  cookie (JWT via `jose`)
 - Deploy target: Vercel
 
 ## 1. Create the Supabase project
@@ -40,12 +41,13 @@ Copy-Item .env.example .env.local
 Fill in `.env.local`:
 
 - `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` — from step 1.
-- `AURORA_PASSWORD_HASH` — generate with:
-  ```powershell
-  npm run hash-password -- "your-password-here"
-  ```
-  Paste the printed bcrypt hash into `.env.local`. The plaintext password is
-  never stored anywhere.
+- `AURORA_PASSWORD` — your login password, stored as plaintext. This is a
+  deliberate simplicity tradeoff for a private single-operator tool: anyone
+  who can read this env var (locally, or in Vercel's project settings) can
+  read your password directly, unlike a hashed value. If the password
+  contains a literal `$`, escape each one as `$$` — Next.js's `.env` loader
+  (`dotenv-expand`) otherwise treats `$` as the start of a variable
+  reference and silently mangles the value.
 - `SESSION_SECRET` — a long random string used to sign the session cookie:
   ```powershell
   node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
@@ -61,7 +63,7 @@ npm run dev
 ```
 
 Visit `http://localhost:3000`. You'll be redirected to `/login`; enter the
-password you hashed in step 2. On success you land on `/outcomes`.
+password you set in step 2. On success you land on `/outcomes`.
 
 > This project was scaffolded in an environment without Node.js installed, so
 > `npm install` / `npm run build` have not been run or verified here. Run
@@ -107,8 +109,6 @@ components/
   LogoutButton.tsx
 supabase/
   schema.sql            full Phase 1 schema + RPCs, run this in Supabase
-scripts/
-  hash-password.mjs     CLI helper to bcrypt-hash your password
 middleware.ts            enforces the password gate on every route except /login
 ```
 

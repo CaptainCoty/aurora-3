@@ -6,12 +6,10 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
-    "hash-password": "node scripts/hash-password.mjs"
+    "lint": "next lint"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",
-    "bcryptjs": "^2.4.3",
     "jose": "^5.9.3",
     "next": "^14.2.15",
     "react": "^18.3.1",
@@ -19,7 +17,6 @@
     "server-only": "^0.0.1"
   },
   "devDependencies": {
-    "@types/bcryptjs": "^2.4.6",
     "@types/node": "^20.16.10",
     "@types/react": "^18.3.10",
     "@types/react-dom": "^18.3.0",
