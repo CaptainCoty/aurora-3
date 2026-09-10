@@ -2,6 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { SESSION_COOKIE_NAME, verifySessionToken } from "@/lib/auth";
 
 export async function middleware(req: NextRequest) {
+  // Vercel Cron requests carry no browser session cookie; that route
+  // verifies its own CRON_SECRET bearer token instead (see its handler).
+  if (req.nextUrl.pathname.startsWith("/api/cron/")) {
+    return NextResponse.next();
+  }
+
   const token = req.cookies.get(SESSION_COOKIE_NAME)?.value;
   const authenticated = await verifySessionToken(token);
 
