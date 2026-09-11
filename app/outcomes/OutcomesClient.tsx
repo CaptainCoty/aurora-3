@@ -29,6 +29,12 @@ function sortDesc(outcomes: WuOutcome[]): WuOutcome[] {
   return [...outcomes].sort((a, b) => b.date.localeCompare(a.date));
 }
 
+function daysInMonth(year: number, month: number): number {
+  // Local-time constructor is fine here: only the day count is used, which
+  // isn't affected by timezone/DST.
+  return new Date(year, month, 0).getDate();
+}
+
 export default function OutcomesClient({
   initialOutcomes,
 }: {
@@ -39,19 +45,25 @@ export default function OutcomesClient({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
-  const [pendingFocusKey, setPendingFocusKey] = useState<string | null>(null);
+  const [pendingFocus, setPendingFocus] = useState<{ key: string; field: "date" | "temp" } | null>(null);
   const [expandedDate, setExpandedDate] = useState<string | null>(null);
   const [editingDate, setEditingDate] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState({ finalHigh: "", source: "WU", verified: true });
+  const [monthInput, setMonthInput] = useState("");
 
   const dateRefs = useRef<Map<string, HTMLInputElement>>(new Map());
+  const tempRefs = useRef<Map<string, HTMLInputElement>>(new Map());
 
   useEffect(() => {
-    if (!pendingFocusKey) return;
-    const el = dateRefs.current.get(pendingFocusKey);
-    el?.focus();
-    setPendingFocusKey(null);
-  }, [pendingFocusKey, rows]);
+    if (!pendingFocus) return;
+    const map = pendingFocus.field === "date" ? dateRefs : tempRefs;
+    const el = map.current.get(pendingFocus.key);
+    if (el) {
+      el.focus();
+      if (pendingFocus.field === "temp") el.select();
+    }
+    setPendingFocus(null);
+  }, [pendingFocus, rows]);
 
   function updateRow(key: string, field: keyof DraftRow, value: string | boolean) {
     setRows((prev) =>
@@ -66,18 +78,64 @@ export default function OutcomesClient({
   function addRow() {
     const row = makeBlankRow();
     setRows((prev) => [...prev, row]);
-    setPendingFocusKey(row.key);
+    setPendingFocus({ key: row.key, field: "date" });
+  }
+
+  function generateMonth() {
+    if (!monthInput) {
+      setError("Pick a month first.");
+      return;
+    }
+
+    const [yearStr, monthStr] = monthInput.split("-");
+    const year = Number(yearStr);
+    const month = Number(monthStr); // 1-12
+    const total = daysInMonth(year, month);
+
+    const savedDates = new Set(outcomes.map((o) => o.date));
+    const draftDates = new Set(rows.map((r) => r.date).filter((d) => d !== ""));
+
+    const newRows: DraftRow[] = [];
+    for (let day = 1; day <= total; day++) {
+      const date = `${yearStr}-${monthStr}-${String(day).padStart(2, "0")}`;
+      if (savedDates.has(date) || draftDates.has(date)) continue;
+      newRows.push({ ...makeBlankRow(), date });
+    }
+
+    if (newRows.length === 0) {
+      setError(`Nothing to add for ${monthInput} — every day already has a saved outcome or draft row.`);
+      return;
+    }
+
+    setError(null);
+    setMessage(null);
+    // Drop untouched placeholder rows (no date, no temp) so generating a
+    // month doesn't leave a scatter of blank rows mixed in with it, while
+    // preserving any row the user has already started filling in.
+    setRows((prev) => {
+      const keep = prev.filter((r) => r.date.trim() !== "" || r.finalHigh.trim() !== "");
+      return [...keep, ...newRows];
+    });
+    setPendingFocus({ key: newRows[0].key, field: "temp" });
   }
 
   function handleTempKeyDown(e: React.KeyboardEvent<HTMLInputElement>, index: number) {
-    if (e.key !== "Enter") return;
+    const next = e.key === "Enter" || e.key === "ArrowDown";
+    const prev = e.key === "ArrowUp";
+    if (!next && !prev) return;
     e.preventDefault();
+
+    if (prev) {
+      if (index > 0) setPendingFocus({ key: rows[index - 1].key, field: "temp" });
+      return;
+    }
+
     if (index === rows.length - 1) {
       const row = makeBlankRow();
-      setRows((prev) => [...prev, row]);
-      setPendingFocusKey(row.key);
+      setRows((prevRows) => [...prevRows, row]);
+      setPendingFocus({ key: row.key, field: "date" });
     } else {
-      setPendingFocusKey(rows[index + 1].key);
+      setPendingFocus({ key: rows[index + 1].key, field: "temp" });
     }
   }
 
@@ -189,12 +247,28 @@ export default function OutcomesClient({
     <div className="space-y-10">
       {/* Batch entry */}
       <section>
-        <div className="mb-3 flex items-baseline justify-between">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-sm font-medium text-ink">Batch entry</h2>
-          <p className="text-xs text-muted">
-            Enter on the temp field adds a new row. Existing dates are corrected, not overwritten.
-          </p>
+          <div className="flex items-center gap-2">
+            <input
+              type="month"
+              value={monthInput}
+              onChange={(e) => setMonthInput(e.target.value)}
+              className="rounded bg-void px-2 py-1 text-xs text-ink outline-none focus:ring-1 focus:ring-accent"
+            />
+            <button
+              type="button"
+              onClick={generateMonth}
+              className="rounded border border-panelBorder px-3 py-1.5 text-xs text-ink hover:border-accent"
+            >
+              Generate month
+            </button>
+          </div>
         </div>
+        <p className="mb-3 text-xs text-muted">
+          Enter or &darr; on the temp field jumps to the next row&apos;s temp field; &uarr; goes back.
+          Existing dates are corrected, not overwritten.
+        </p>
 
         <div className="overflow-x-auto rounded border border-panelBorder">
           <table className="w-full min-w-[560px] border-collapse font-mono text-sm">
@@ -224,6 +298,10 @@ export default function OutcomesClient({
                   </td>
                   <td className="px-3 py-1.5">
                     <input
+                      ref={(el) => {
+                        if (el) tempRefs.current.set(row.key, el);
+                        else tempRefs.current.delete(row.key);
+                      }}
                       type="number"
                       step={1}
                       inputMode="numeric"
